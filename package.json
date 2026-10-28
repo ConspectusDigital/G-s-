@@ -1,0 +1,17 @@
+{
+  "name": "gas-atendimento",
+  "version": "1.0.0",
+  "description": "Sistema de atendimento via WhatsApp e lembretes de recompra para revenda de gás",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
+    "demo": "node --disable-warning=ExperimentalWarning scripts/demo.js",
+    "start:demo": "DB_PATH=data/demo.db node --disable-warning=ExperimentalWarning src/server.js"
+  }
+}

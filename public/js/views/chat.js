@@ -3,6 +3,7 @@ import { orderDialog } from '../dialogs.js';
 import { loadTemplates, on, store } from '../store.js';
 
 const STATUS_ICON = { pending: '🕓', sent: '✓', delivered: '✓✓', read: '✓✓', failed: '⚠️', received: '' };
+const SENDER_LABEL = { ia: '🤖 IA', lembrete: '🔔 Lembrete', automatico: '⚙️ Automática', celular: '📱 Celular da loja' };
 
 function linkify(text) {
   const parts = String(text).split(/(https?:\/\/\S+)/g);
@@ -65,7 +66,8 @@ export function render(container, params) {
     },
     h('div', { class: 'avatar' }, initials(c.customer_name || '#')),
     h('div', { style: { minWidth: 0 } },
-      h('div', { class: 'name' }, c.customer_name || fmtPhone(c.phone)),
+      h('div', { class: 'name' }, c.ai_active ? h('span', { title: 'IA atendendo' }, '🤖 ') : null, c.customer_name || fmtPhone(c.phone)),
+      c.needs_human ? h('div', { class: 'small', style: { color: 'var(--danger)', fontWeight: 600 } }, '⚠️ Precisa de você') : null,
       h('div', { class: 'preview' }, (c.last_direction === 'out' ? (STATUS_ICON[c.last_status] || '') + ' ' : '') + c.last_body)),
     h('div', { class: 'right' }, h('span', {}, convTime(c.last_at)), c.unread ? h('span', { class: 'unread' }, c.unread) : null))));
   }
@@ -97,7 +99,8 @@ export function render(container, params) {
     return h('div', { class: `bubble ${m.direction}${m.status === 'failed' ? ' failed' : ''}`, 'data-id': m.id },
       linkify(m.body),
       m.error ? h('div', { class: 'err' }, 'Não enviada: ' + m.error) : null,
-      h('div', { class: 'time' }, fmtTime(m.created_at), m.direction === 'out' ? ' ' + (STATUS_ICON[m.status] || '') : ''));
+      h('div', { class: 'time' }, m.direction === 'out' && SENDER_LABEL[m.sender] ? SENDER_LABEL[m.sender] + ' · ' : '',
+        fmtTime(m.created_at), m.direction === 'out' ? ' ' + (STATUS_ICON[m.status] || '') : ''));
   }
 
   function drawMessages(body) {
@@ -156,6 +159,9 @@ export function render(container, params) {
       if (customer.do_not_contact) strip.push(h('span', { class: 'badge' }, 'Não quer lembretes'));
     }
 
+    const aiBox = h('div', { class: 'ai-box' });
+    drawAi(aiBox);
+
     mount(chatPane,
       h('div', { class: 'chat-head' },
         h('button', { class: 'btn sm ghost mobile-only', onclick: () => { location.hash = '#/atendimento'; } }, '←'),
@@ -167,6 +173,7 @@ export function render(container, params) {
           class: 'btn primary sm',
           onclick: () => orderDialog({ customer, source: 'whatsapp', onSaved: () => openThread(current) }),
         }, '+ Pedido')),
+      aiBox,
       strip.length ? h('div', { class: 'chat-strip' }, strip) : null,
       body,
       h('div', { class: 'chat-input' },
@@ -175,6 +182,44 @@ export function render(container, params) {
     drawMessages(body);
     if (scroll) body.scrollTop = body.scrollHeight;
     if (window.innerWidth > 860) text.focus();
+  }
+
+  // Faixa que mostra quem está atendendo (IA ou pessoa) e permite trocar.
+  function drawAi(box = chatPane.querySelector('.ai-box')) {
+    if (!box || !thread) return;
+    const { ai, phone } = thread;
+    const toggle = (enabled) => (e) => attempt(async () => {
+      await api(`/api/conversations/${encodeURIComponent(phone)}/ai`, { method: 'POST', body: { enabled } });
+      await refreshAi();
+      toast(enabled ? 'A IA voltou a atender esta conversa' : 'Você assumiu a conversa. A IA não vai responder aqui.');
+    }, e.currentTarget);
+    const parts = [];
+    if (ai.needs_human) {
+      parts.push(h('div', { class: 'ai-alert' }, h('strong', {}, '⚠️ Precisa de atendimento humano' + (ai.reason ? ':' : '')), ai.reason || '',
+        h('button', {
+          class: 'btn sm', style: { marginLeft: 'auto' },
+          onclick: (e) => attempt(async () => { await api(`/api/conversations/${encodeURIComponent(phone)}/resolve`, { method: 'POST' }); await refreshAi(); }, e.currentTarget),
+        }, 'Resolvido')));
+    }
+    if (ai.global) {
+      parts.push(ai.active
+        ? h('div', { class: 'ai-bar on' }, h('span', {}, '🤖 A IA está atendendo esta conversa'),
+          h('button', { class: 'btn sm', onclick: toggle(false) }, '✋ Assumir conversa'))
+        : h('div', { class: 'ai-bar off' }, h('span', {}, '👤 Atendimento humano — a IA está desligada aqui'),
+          h('button', { class: 'btn sm', onclick: toggle(true) }, '🤖 Devolver para a IA')));
+    }
+    mount(box, parts);
+  }
+
+  async function refreshAi() {
+    if (!current) return;
+    const data = await api('/api/conversations/' + encodeURIComponent(current));
+    if (thread && data.key === thread.key) {
+      thread.ai = data.ai;
+      thread.customer = data.customer;
+      drawAi();
+    }
+    loadList();
   }
 
   function onMessage(m) {
@@ -215,21 +260,26 @@ export function render(container, params) {
     const phone = h('input', { inputmode: 'tel', value: thread?.phone ? fmtPhone(thread.phone) : '', placeholder: '(11) 98765-4321' });
     const name = h('input', { placeholder: 'Nome no WhatsApp (opcional)' });
     const text = h('textarea', { rows: 3 }, 'Oi, quero um gás');
+    const coords = h('input', { placeholder: 'ex.: -23.5505, -46.6333 (opcional)' });
     const m = modal({
       title: 'Simular mensagem de cliente',
       body: h('div', {}, h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Modo de teste: finge que um cliente mandou mensagem, para você conhecer o sistema antes de conectar o WhatsApp de verdade.'),
-        field('Telefone', phone), field('Nome', name), field('Mensagem', text)),
+        field('Telefone', phone), field('Nome', name), field('Mensagem', text),
+        field('…ou enviar uma localização', coords, 'Se preencher, simula o cliente mandando a localização pelo WhatsApp.')),
       footer: [h('button', {
         class: 'btn primary',
         onclick: (e) => attempt(async () => {
-          await api('/api/whatsapp/simulate', { method: 'POST', body: { phone: phone.value, name: name.value, text: text.value } });
+          const [lat, lng] = coords.value.split(',').map((v) => Number(v.trim()));
+          const loc = coords.value.trim() && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {};
+          await api('/api/whatsapp/simulate', { method: 'POST', body: { phone: phone.value, name: name.value, text: text.value, ...loc } });
           m.close();
         }, e.currentTarget),
       }, 'Simular')],
     });
   }
 
-  const offs = [on('message', onMessage), on('read', () => loadList())];
+  const offs = [on('message', onMessage), on('read', () => loadList()),
+    on('handoff', (d) => { if (thread && d.phone_key === thread.key) refreshAi(); else loadList(); })];
   loadList().then(() => openThread(current));
   return {
     cleanup: () => offs.forEach((off) => off()),

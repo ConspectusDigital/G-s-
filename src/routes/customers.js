@@ -185,6 +185,12 @@ export function registerCustomers(router, ctx) {
     const data = cleanCustomer(req.body, ctx.settings());
     if ('phone_key' in data) assertPhoneFree(db, data.phone_key, id);
     const keys = Object.keys(data);
+    const current = getCustomer(db, id);
+    // Endereço mudou: a localização calculada a partir do endereço antigo deixa de valer.
+    if (current.location_source === 'endereco' && ((data.address ?? current.address) !== current.address
+      || (data.neighborhood ?? current.neighborhood) !== current.neighborhood)) {
+      db.prepare("UPDATE customers SET latitude = NULL, longitude = NULL, location_source = '' WHERE id = ?").run(id);
+    }
     if (keys.length) {
       db.prepare(`UPDATE customers SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
         .run(...keys.map((k) => data[k]), new Date().toISOString(), id);

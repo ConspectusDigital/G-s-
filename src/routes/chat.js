@@ -4,6 +4,7 @@ import { normalizePhone, phoneKey } from '../util.js';
 import { parseCloudWebhook } from '../whatsapp/cloud.js';
 import { parseEvolutionWebhook } from '../whatsapp/evolution.js';
 import { computeReminders } from '../services/reminders.js';
+import { aiActiveFor, getChatState, setChatState } from '../services/ai.js';
 
 export function registerChat(router, ctx) {
   const { db } = ctx;
@@ -13,11 +14,15 @@ export function registerChat(router, ctx) {
     const rows = db.prepare(`
       SELECT m.phone_key, m.phone, m.body AS last_body, m.direction AS last_direction, m.status AS last_status, m.created_at AS last_at,
         c.id AS customer_id, c.name AS customer_name,
-        (SELECT COUNT(*) FROM messages u WHERE u.phone_key = m.phone_key AND u.direction = 'in' AND u.read = 0) AS unread
+        (SELECT COUNT(*) FROM messages u WHERE u.phone_key = m.phone_key AND u.direction = 'in' AND u.read = 0) AS unread,
+        cs.ai_enabled AS chat_ai, COALESCE(cs.needs_human, 0) AS needs_human, cs.handoff_reason
       FROM messages m
       JOIN (SELECT phone_key, MAX(id) AS id FROM messages GROUP BY phone_key) last ON last.id = m.id
       LEFT JOIN customers c ON c.phone_key = m.phone_key
-      ORDER BY m.id DESC LIMIT 300`).all();
+      LEFT JOIN chat_settings cs ON cs.phone_key = m.phone_key
+      ORDER BY cs.needs_human DESC, m.id DESC LIMIT 300`).all();
+    const globalAi = Boolean(ctx.settings().ai_enabled);
+    for (const r of rows) r.ai_active = globalAi && r.chat_ai !== 0;
     if (!q) return rows;
     const lower = q.toLowerCase();
     const digits = q.replace(/\D/g, '');
@@ -35,7 +40,27 @@ export function registerChat(router, ctx) {
     const lastOrder = customer
       ? db.prepare("SELECT date, total FROM orders WHERE customer_id = ? AND status != 'cancelado' ORDER BY date DESC, id DESC LIMIT 1").get(customer.id)
       : null;
-    return { phone, key, messages, customer, reminders, lastOrder: lastOrder || null };
+    const chat = getChatState(db, key);
+    const ai = { global: Boolean(ctx.settings().ai_enabled), active: aiActiveFor(ctx, key), needs_human: Boolean(chat.needs_human), reason: chat.handoff_reason };
+    return { phone, key, messages, customer, reminders, lastOrder: lastOrder || null, ai };
+  });
+
+  // Liga/desliga a IA nesta conversa. Ao devolver para a IA, ela responde se houver mensagem pendente.
+  router.post('/api/conversations/:phone/ai', (req) => {
+    const phone = normalizePhone(req.params.phone) || req.params.phone;
+    const key = phoneKey(phone);
+    const enabled = Boolean(req.body.enabled);
+    setChatState(db, key, { ai_enabled: enabled ? 1 : 0, needs_human: 0, handoff_reason: '' });
+    ctx.broadcast('handoff', { phone_key: key });
+    if (enabled && aiActiveFor(ctx, key)) ctx.agent.schedule(phone, 500);
+    return { ok: true, active: aiActiveFor(ctx, key) };
+  });
+
+  router.post('/api/conversations/:phone/resolve', (req) => {
+    const key = phoneKey(normalizePhone(req.params.phone) || req.params.phone);
+    setChatState(db, key, { needs_human: 0, handoff_reason: '' });
+    ctx.broadcast('handoff', { phone_key: key });
+    return { ok: true };
   });
 
   router.post('/api/conversations/:phone/read', (req) => {
@@ -77,9 +102,13 @@ export function registerChat(router, ctx) {
     if (ctx.settings().wa_provider !== 'simulator') throw new HttpError(400, 'Disponível apenas no modo simulador');
     const phone = normalizePhone(req.body.phone, ctx.settings().default_ddd);
     if (!phone) throw new HttpError(400, 'Telefone inválido');
+    const lat = Number(req.body.lat);
+    const lng = Number(req.body.lng);
+    const location = req.body.lat !== undefined && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
     await handleEvents(ctx, [{
       type: 'message', phone, name: String(req.body.name || '').trim() || null,
-      body: String(req.body.text || '').trim() || 'Oi, quero um gás', waId: 'sim-in-' + Date.now() + Math.random(), fromMe: false,
+      body: location ? `📍 Localização https://maps.google.com/?q=${lat},${lng}` : String(req.body.text || '').trim() || 'Oi, quero um gás',
+      waId: 'sim-in-' + Date.now() + Math.random(), fromMe: false, location,
     }]);
     return { ok: true };
   });

@@ -82,7 +82,7 @@ window.addEventListener('settings-changed', refreshStatus);
 async function refreshBadges() {
   try {
     const d = await api('/api/dashboard');
-    badges = { chamar: d.counts.chamar || 0, unread: d.unread };
+    badges = { chamar: d.counts.chamar || 0, unread: d.unread + d.needsHuman };
     for (const el of document.querySelectorAll('[data-badge]')) {
       const n = badges[el.dataset.badge];
       el.textContent = n > 99 ? '99+' : n;
@@ -136,6 +136,16 @@ on('message', (m) => {
   if (!seen.has(m.id)) { seen.add(m.id); notify(m); }
 });
 for (const ev of ['read', 'reminders', 'orders']) on(ev, scheduleBadges);
+// A IA pediu ajuda de uma pessoa.
+on('handoff', (d) => {
+  scheduleBadges();
+  if (!d.reason || d.paused) return;
+  toast(`⚠️ ${d.name || 'Cliente'} precisa de atendimento: ${d.reason}`, 'error');
+  if ('Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+    const n = new Notification('Cliente precisa de atendimento', { body: `${d.name || ''}: ${d.reason}`, tag: 'handoff-' + d.phone_key });
+    n.onclick = () => { window.focus(); if (d.phone) location.hash = '#/atendimento/' + d.phone; };
+  }
+});
 
 async function start() {
   try {

@@ -63,7 +63,8 @@ export function registerOrders(router, ctx) {
     const status = ORDER_STATUSES.includes(b.status) ? b.status : 'novo';
     const payment = PAYMENT_METHODS.includes(b.payment_method) ? b.payment_method : '';
     const source = SOURCES.includes(b.source) ? b.source : 'balcao';
-    const total = items.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+    const fee = Math.max(0, Number(b.delivery_fee) || 0);
+    const total = items.reduce((s, i) => s + i.quantity * i.unit_price, 0) + fee;
 
     const id = transaction(db, () => {
       let customerId = Number(b.customer_id) || 0;
@@ -80,9 +81,9 @@ export function registerOrders(router, ctx) {
         });
       } else getCustomer(db, customerId);
 
-      const { lastInsertRowid } = db.prepare(`INSERT INTO orders (customer_id, date, status, payment_method, total, notes, source, historical, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(customerId, date, status, payment, total, String(b.notes ?? ''), source, source === 'historico' ? 1 : 0, req.user.id, new Date().toISOString());
+      const { lastInsertRowid } = db.prepare(`INSERT INTO orders (customer_id, date, status, payment_method, total, delivery_fee, notes, source, historical, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(customerId, date, status, payment, total, fee, String(b.notes ?? ''), source, source === 'historico' ? 1 : 0, req.user.id, new Date().toISOString());
       const orderId = Number(lastInsertRowid);
       const ins = db.prepare('INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)');
       for (const it of items) ins.run(orderId, it.product_id, it.quantity, it.unit_price);
@@ -113,12 +114,17 @@ export function registerOrders(router, ctx) {
       sets.push('date = ?'); args.push(b.date);
     }
     transaction(db, () => {
-      if (b.items !== undefined) {
-        const items = cleanItems(db, b.items);
-        db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
-        const ins = db.prepare('INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)');
-        for (const it of items) ins.run(id, it.product_id, it.quantity, it.unit_price);
-        sets.push('total = ?'); args.push(items.reduce((s, i) => s + i.quantity * i.unit_price, 0));
+      if (b.items !== undefined || b.delivery_fee !== undefined) {
+        let items = before.items;
+        if (b.items !== undefined) {
+          items = cleanItems(db, b.items);
+          db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+          const ins = db.prepare('INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)');
+          for (const it of items) ins.run(id, it.product_id, it.quantity, it.unit_price);
+        }
+        const fee = b.delivery_fee !== undefined ? Math.max(0, Number(b.delivery_fee) || 0) : before.delivery_fee;
+        sets.push('delivery_fee = ?', 'total = ?');
+        args.push(fee, items.reduce((s, i) => s + i.quantity * i.unit_price, 0) + fee);
       }
       if (sets.length) db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...args, id);
     });
@@ -129,6 +135,7 @@ export function registerOrders(router, ctx) {
       const tpl = db.prepare("SELECT body FROM templates WHERE kind = 'entrega' ORDER BY id LIMIT 1").get();
       if (tpl) {
         await sendMessage(ctx, {
+          sender: 'automatico',
           phone: order.phone, customerId: order.customer_id,
           text: renderTemplate(tpl.body, { nome: firstName(order.customer_name), loja: settings.store_name }),
         });

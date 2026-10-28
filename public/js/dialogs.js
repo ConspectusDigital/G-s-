@@ -48,8 +48,10 @@ export async function orderDialog({ customer = null, source = 'balcao', productI
 
   const itemsBody = h('tbody');
   const totalEl = h('div', { class: 'total-line' });
+  const feeInput = h('input', { type: 'number', step: '0.01', min: '0', value: 0, name: 'delivery_fee', style: { width: '100px' }, oninput: () => recalc() });
   function recalc() {
-    totalEl.textContent = 'Total: ' + fmtMoney(items.reduce((s, i) => s + i.quantity * i.unit_price, 0));
+    const fee = Number(feeInput.value) || 0;
+    totalEl.textContent = 'Total: ' + fmtMoney(items.reduce((s, i) => s + i.quantity * i.unit_price, 0) + fee);
   }
   function addItem(pid) {
     const p = products.find((x) => x.id === pid) || products[0];
@@ -78,6 +80,8 @@ export async function orderDialog({ customer = null, source = 'balcao', productI
       h('thead', {}, h('tr', {}, h('th', { class: 'small muted', style: { textAlign: 'left' } }, 'Produto'), h('th', { class: 'small muted' }, 'Qtd'), h('th', { class: 'small muted' }, 'Preço un.'), h('th'))),
       itemsBody),
     h('button', { type: 'button', class: 'btn sm', onclick: () => addItem(), style: { marginTop: '6px' } }, '+ Produto'),
+    h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', marginTop: '8px' } },
+      h('span', { class: 'small' }, 'Taxa de entrega (R$)'), feeInput),
     totalEl,
     h('div', { class: 'form-grid', style: { marginTop: '12px' } },
       field('Pagamento', h('select', { name: 'payment_method' }, Object.entries(PAYMENTS).map(([k, v]) => h('option', { value: k }, v)))),
@@ -94,7 +98,7 @@ export async function orderDialog({ customer = null, source = 'balcao', productI
     class: 'btn primary',
     onclick: () => attempt(async () => {
       const v = Object.fromEntries(new FormData(form));
-      const body = { items, payment_method: v.payment_method, status: v.status, date: v.date, source: v.source, notes: v.notes };
+      const body = { items, delivery_fee: Number(v.delivery_fee) || 0, payment_method: v.payment_method, status: v.status, date: v.date, source: v.source, notes: v.notes };
       if (selected) body.customer_id = selected.id;
       else body.new_customer = { name: v.nc_name, phone: v.nc_phone, address: v.nc_address, neighborhood: v.nc_neighborhood, reference: v.nc_reference };
       const order = await api('/api/orders', { method: 'POST', body });

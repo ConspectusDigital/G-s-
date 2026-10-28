@@ -97,7 +97,7 @@ test('webhook da Cloud API', () => {
       statuses: [{ id: 'wamid.0', status: 'read' }],
     } }] }],
   });
-  assert.deepEqual(events[0], { type: 'message', phone: '5511987654321', name: 'Maria', body: 'Quero gás', waId: 'wamid.1', fromMe: false });
+  assert.deepEqual(events[0], { type: 'message', phone: '5511987654321', name: 'Maria', body: 'Quero gás', waId: 'wamid.1', fromMe: false, location: null });
   assert.deepEqual(events[1], { type: 'status', waId: 'wamid.0', status: 'read', error: null });
 });
 

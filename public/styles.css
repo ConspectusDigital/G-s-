@@ -219,6 +219,11 @@ table.list tr.clickable:hover td { background: var(--surface-2); }
 .quick-menu small { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-empty { flex: 1; display: grid; place-items: center; color: var(--muted); background: var(--surface-2); text-align: center; padding: 20px; }
 
+.ai-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.ai-bar.on { background: var(--info-soft); color: var(--info); }
+.ai-bar.off { background: var(--surface-2); color: var(--muted); }
+.ai-alert { display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: var(--danger-soft); color: var(--danger); font-size: 13px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+
 /* ---------- Modal / toast ---------- */
 .modal-back { position: fixed; inset: 0; background: rgba(16, 24, 40, .45); display: grid; place-items: center; z-index: 50; padding: 16px; }
 .modal { background: var(--surface); border-radius: 12px; width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0, 0, 0, .25); }

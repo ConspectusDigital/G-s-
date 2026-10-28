@@ -27,7 +27,7 @@ let source;
 export function connectEvents() {
   source?.close();
   source = new EventSource('/api/events');
-  for (const ev of ['message', 'read', 'orders', 'reminders', 'queue']) {
+  for (const ev of ['message', 'read', 'orders', 'reminders', 'queue', 'handoff', 'customers']) {
     source.addEventListener(ev, (e) => emit(ev, JSON.parse(e.data)));
   }
 }

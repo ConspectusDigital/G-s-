@@ -6,6 +6,7 @@ import { getSettings, openDatabase } from './db.js';
 import { userFromToken } from './auth.js';
 import { createProvider } from './whatsapp/index.js';
 import { createQueue, startScheduler } from './services/autosend.js';
+import { createAgent } from './services/ai.js';
 import { registerAuth } from './routes/auth.js';
 import { registerCustomers } from './routes/customers.js';
 import { registerOrders } from './routes/orders.js';
@@ -15,7 +16,7 @@ import { registerAdmin } from './routes/admin.js';
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
-export function createApp({ dbPath, scheduler = true } = {}) {
+export function createApp({ dbPath, scheduler = true, aiClient = null } = {}) {
   const db = openDatabase(dbPath);
   const clients = new Set();
 
@@ -38,6 +39,8 @@ export function createApp({ dbPath, scheduler = true } = {}) {
   };
   ctx.reloadSettings();
   ctx.queue = createQueue(ctx);
+  ctx.aiClient = aiClient; // só para testes; em produção usa a chave configurada
+  ctx.agent = createAgent(ctx);
 
   const router = new Router();
   registerAuth(router, ctx);

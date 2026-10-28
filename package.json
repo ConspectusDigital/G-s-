@@ -13,5 +13,8 @@
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
     "demo": "node --disable-warning=ExperimentalWarning scripts/demo.js",
     "start:demo": "node --disable-warning=ExperimentalWarning src/server.js --demo"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0"
   }
 }

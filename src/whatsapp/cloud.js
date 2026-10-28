@@ -80,6 +80,7 @@ export function parseCloudWebhook(body) {
           body: describeCloudMessage(m),
           waId: m.id,
           fromMe: false,
+          location: m.type === 'location' ? { lat: Number(m.location?.latitude), lng: Number(m.location?.longitude) } : null,
         });
       }
       for (const s of value.statuses || []) {

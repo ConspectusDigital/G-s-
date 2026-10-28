@@ -37,11 +37,37 @@ Outros detalhes:
 - Opção de responder automaticamente fora do horário e de avisar “seu pedido saiu para entrega”.
 - Envio automático de lembretes (opcional), com limite diário, horário e intervalo entre mensagens.
 
+## 🤖 IA de atendimento
+
+Uma atendente virtual (nome configurável, padrão "Bia") responde o WhatsApp de forma simpática e natural, usando o
+Claude, a IA da Anthropic:
+
+- **Cliente novo:** pergunta nome e endereço (rua, número, bairro e ponto de referência) e **cadastra sozinha**.
+  O telefone vem da própria conversa.
+- **Cliente antigo:** reconhece pelo telefone e já sabe o nome, endereço e últimas compras ("Vai ser o P13 de sempre?").
+- **Taxa de entrega:** calcula pela regra configurada (grátis, fixa, ou grátis até X km e cobrada acima disso).
+- **Pedido:** confirma itens, endereço, pagamento, troco e total com o cliente e **registra o pedido** na tela de Pedidos.
+- **Chama um humano** quando o cliente pede, reclama, fala de vazamento, pede fiado/desconto ou quer mudar um pedido.
+  A conversa fica marcada com **⚠️ Precisa de você** e você recebe um aviso.
+- **Liga/desliga por conversa:** em cada chat há o botão **✋ Assumir conversa** (a IA para ali) e **🤖 Devolver para a IA**.
+  Se alguém da loja responder pelo sistema ou pelo celular, a IA também para naquela conversa (dá para desativar isso).
+
+Para ativar: **Config. → IA de atendimento**, cole a chave da API (crie em [console.anthropic.com](https://console.anthropic.com)),
+marque "Ligar a IA" e salve. Configure também **Config. → Entrega**. A IA é cobrada pela Anthropic conforme o uso
+(normalmente centavos por atendimento).
+
+### Taxa de entrega por distância
+
+Informe a localização da loja (copie as coordenadas do Google Maps ou use "Localizar pelo endereço"). O sistema
+encontra o endereço do cliente no mapa (OpenStreetMap) e calcula a distância de carro. Se não achar o endereço,
+a IA pede para o cliente mandar a **localização pelo WhatsApp**, que tem as coordenadas exatas.
+
 ## Como rodar
 
-Precisa do **Node.js 22.13 ou mais novo**. Não tem dependências para instalar.
+Precisa do **Node.js 22.13 ou mais novo**.
 
 ```bash
+npm install
 npm start
 # abra http://localhost:3000
 ```
@@ -118,6 +144,8 @@ src/
   services/reminders.js  ★ cálculo de quando o produto acaba e quem chamar
   services/messages.js   envio/recebimento de mensagens, cadastro automático, SAIR
   services/autosend.js   fila de envio com intervalo e envio automático agendado
+  services/ai.js         ★ IA de atendimento: instruções, ferramentas e controle por conversa
+  services/delivery.js   localização no mapa, distância e taxa de entrega
   whatsapp/              conectores: Cloud API, Evolution API e simulador
   routes/                API REST
 public/                  interface (HTML/CSS/JS puro, sem build)

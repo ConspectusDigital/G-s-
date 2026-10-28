@@ -101,6 +101,14 @@ CREATE TABLE IF NOT EXISTS contacts (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS contacts_customer ON contacts(customer_id, date);
+-- Controle do atendimento por conversa: IA ligada/desligada e pedidos de ajuda da IA.
+CREATE TABLE IF NOT EXISTS chat_settings (
+  phone_key TEXT PRIMARY KEY,
+  ai_enabled INTEGER,
+  needs_human INTEGER NOT NULL DEFAULT 0,
+  handoff_reason TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS templates (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -149,9 +157,48 @@ export const DEFAULT_SETTINGS = {
   away_message: 'Olá! No momento estamos fechados. Assim que abrirmos respondemos sua mensagem. 😊',
   notify_on_dispatch: false,
   opt_out_keywords: 'sair,parar,pare,cancelar lembretes',
+  // IA de atendimento
+  ai_enabled: false,
+  ai_api_key: '',
+  ai_model: 'claude-opus-5-5',
+  ai_effort: 'low',
+  ai_name: 'Bia',
+  ai_instructions: '',
+  ai_wait_seconds: 6,
+  ai_pause_on_human: true,
+  ai_handoff_message: 'Vou chamar alguém da equipe pra te ajudar, só um instante! 🙏',
+  payment_methods: 'Dinheiro, Pix, cartão de débito e crédito',
+  // Entrega
+  store_address: '',
+  store_city: '',
+  store_lat: null,
+  store_lng: null,
+  delivery_fee_mode: 'gratis',
+  delivery_fee_fixed: 0,
+  delivery_free_km: 3,
+  delivery_fee_per_km: 0,
+  delivery_max_km: 0,
+  delivery_eta: '30 a 60 minutos',
 };
 
-export const SECRET_SETTINGS = ['cloud_token', 'cloud_app_secret', 'evolution_apikey'];
+export const SECRET_SETTINGS = ['cloud_token', 'cloud_app_secret', 'evolution_apikey', 'ai_api_key'];
+
+// Colunas adicionadas depois da primeira versão (bancos antigos ganham as colunas na hora).
+const MIGRATIONS = [
+  ['customers', 'latitude', 'REAL'],
+  ['customers', 'longitude', 'REAL'],
+  ['customers', 'location_source', "TEXT NOT NULL DEFAULT ''"],
+  ['orders', 'delivery_fee', 'REAL NOT NULL DEFAULT 0'],
+  ['orders', 'distance_km', 'REAL'],
+  ['messages', 'sender', "TEXT NOT NULL DEFAULT ''"],
+];
+
+function migrate(db) {
+  for (const [table, column, type] of MIGRATIONS) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
 
 const SEED_PRODUCTS = [
   ['Gás P13 (13 kg)', 110, 45],
@@ -176,6 +223,7 @@ export function openDatabase(path) {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  migrate(db);
   seed(db);
   return db;
 }
@@ -209,7 +257,8 @@ export function saveSettings(db, patch) {
     if (!(key in DEFAULT_SETTINGS)) continue;
     const def = DEFAULT_SETTINGS[key];
     let v = value;
-    if (typeof def === 'number') v = Number(value) || 0;
+    if (def === null) v = value === null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
+    else if (typeof def === 'number') v = Number(value) || 0;
     else if (typeof def === 'boolean') v = Boolean(value);
     else if (Array.isArray(def)) v = Array.isArray(value) ? value.map(Number) : def;
     else v = String(value ?? '');

@@ -62,6 +62,9 @@ export function parseEvolutionWebhook(body) {
         body: describeEvolutionMessage(d.message || {}, d.messageType),
         waId: key.id || null,
         fromMe: Boolean(key.fromMe),
+        location: d.message?.locationMessage
+          ? { lat: Number(d.message.locationMessage.degreesLatitude), lng: Number(d.message.locationMessage.degreesLongitude) }
+          : null,
       });
     }
   } else if (event === 'messages.update') {

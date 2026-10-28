@@ -158,7 +158,8 @@ function renderDetail(container, id) {
           h('div', { class: 'card' }, h('h2', {}, `Pedidos (${d.stats.orders} · ${fmtMoney(d.stats.revenue)})`),
             d.orders.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'list' }, h('tbody', {}, d.orders.map((o) => h('tr', {},
               h('td', { class: 'nowrap' }, fmtDate(o.date)),
-              h('td', {}, o.items.map((i) => h('div', { class: 'small' }, `${i.quantity}× ${i.product_name}`))),
+              h('td', {}, o.items.map((i) => h('div', { class: 'small' }, `${i.quantity}× ${i.product_name}`)),
+            o.delivery_fee > 0 ? h('div', { class: 'small muted' }, `+ entrega ${fmtMoney(o.delivery_fee)}`) : null),
               h('td', { class: 'nowrap' }, o.historical ? h('span', { class: 'muted small' }, 'registro anterior') : fmtMoney(o.total)),
               h('td', {}, h('span', { class: 'badge ' + ORDER_STATUS[o.status].cls }, ORDER_STATUS[o.status].label)),
               h('td', {}, o.historical ? h('button', {

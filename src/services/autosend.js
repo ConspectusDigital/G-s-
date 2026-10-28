@@ -23,7 +23,7 @@ export async function sendReminder(ctx, item, { text = null, templateId = null, 
     if (!tpl) throw Object.assign(new Error('Nenhum modelo de mensagem cadastrado'), { status: 400 });
     body = renderTemplate(tpl.body, vars);
   }
-  const msg = await sendMessage(ctx, { phone: item.phone, text: body, customerId: item.customer_id, vars });
+  const msg = await sendMessage(ctx, { phone: item.phone, text: body, customerId: item.customer_id, vars, sender: 'lembrete' });
   if (msg.status !== 'failed') {
     logContact(ctx.db, { customerId: item.customer_id, productId: item.product_id, channel, result: 'enviado', userId });
     ctx.broadcast('reminders', {});

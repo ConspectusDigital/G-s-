@@ -62,7 +62,8 @@ export function render(container) {
             h('div', { class: 'small muted' }, [o.address, o.neighborhood].filter(Boolean).join(', ') || fmtPhone(o.phone)),
             o.reference ? h('div', { class: 'small muted' }, 'Ref.: ' + o.reference) : null,
             o.notes ? h('div', { class: 'small' }, '📝 ' + o.notes) : null),
-          h('td', {}, o.items.map((i) => h('div', { class: 'small' }, `${i.quantity}× ${i.product_name}`))),
+          h('td', {}, o.items.map((i) => h('div', { class: 'small' }, `${i.quantity}× ${i.product_name}`)),
+            o.delivery_fee > 0 ? h('div', { class: 'small muted' }, `+ entrega ${fmtMoney(o.delivery_fee)}`) : null),
           h('td', { class: 'nowrap' }, fmtMoney(o.total)),
           h('td', {}, h('select', {
             style: { width: 'auto', padding: '4px 6px' },

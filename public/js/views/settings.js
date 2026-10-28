@@ -3,6 +3,8 @@ import { loadProducts, loadTemplates, store } from '../store.js';
 
 const SECTIONS = [
   ['whatsapp', 'WhatsApp'],
+  ['ia', 'IA de atendimento'],
+  ['entrega', 'Entrega'],
   ['lembretes', 'Lembretes'],
   ['produtos', 'Produtos e preços'],
   ['modelos', 'Mensagens prontas'],
@@ -31,7 +33,7 @@ export function render(container, params) {
       onclick: () => attempt(async () => {
         const v = {};
         for (const el of form.querySelectorAll('[name]')) {
-          if (el.name === 'auto_send_days') continue;
+          if (el.name === 'auto_send_days' || el.disabled) continue;
           v[el.name] = el.type === 'checkbox' ? el.checked : el.value;
         }
         const days = form.querySelectorAll('[name=auto_send_days]');
@@ -51,7 +53,7 @@ export function render(container, params) {
       h('div', { class: 'page-head' }, h('h1', {}, 'Configurações')),
       h('div', { class: 'tabs' }, SECTIONS.map(([k, l]) => h('button', { class: k === section ? 'active' : '', onclick: () => { section = k; location.hash = '#/config/' + k; } }, l))),
       body);
-    ({ whatsapp, lembretes, produtos, modelos, loja, usuarios })[section](body);
+    ({ whatsapp, ia, entrega, lembretes, produtos, modelos, loja, usuarios })[section](body);
   }
 
   // ---------- WhatsApp ----------
@@ -132,6 +134,105 @@ export function render(container, params) {
     };
     await refresh();
     timer = setInterval(() => { if (!document.body.contains(m.el)) clearInterval(timer); else refresh(); }, 20000);
+  }
+
+  // ---------- IA de atendimento ----------
+  function ia(el) {
+    const s = data.settings;
+    const testBtn = h('button', {
+      class: 'btn',
+      onclick: () => attempt(async () => {
+        const r = await api('/api/ai/test', { method: 'POST' });
+        toast('IA respondeu: ' + r.text);
+      }, testBtn),
+    }, 'Testar conexão com a IA');
+    mount(el,
+      h('div', { class: 'card' },
+        h('h2', {}, 'Atendente virtual no WhatsApp'),
+        h('p', { class: 'small muted', style: { marginTop: 0 } },
+          'A IA responde os clientes de forma simpática, cadastra nome e endereço de quem é novo, calcula a taxa de entrega, confirma e registra o pedido. ',
+          'Quando o cliente pede uma pessoa, reclama ou pede algo fora do padrão, ela chama você e para de responder naquela conversa. ',
+          'Em cada conversa da tela de Atendimento há o botão "Assumir conversa" para desligar a IA só ali.'),
+        settingsForm([
+          check(s, 'ai_enabled', 'Ligar a IA de atendimento'),
+          check(s, 'ai_pause_on_human', 'Quando alguém da loja responder numa conversa, a IA para de atender ali'),
+          h('div', { class: 'form-grid' },
+            field('Nome da atendente', input(s, 'ai_name'), 'Como a IA se apresenta. Ex.: Bia, Ana, Gabi.'),
+            field('Chave da API (Anthropic)', input(s, 'ai_api_key', { type: 'password', autocomplete: 'off', placeholder: 'sk-ant-...' }), 'Crie em console.anthropic.com → API Keys.'),
+            field('Modelo', h('select', { name: 'ai_model' },
+              [['claude-opus-5-5', 'Claude Opus 5.5 (recomendado)'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5 (mais barato)'], ['claude-haiku-5-5', 'Claude Haiku 5.5 (o mais barato)']]
+                .map(([v, l]) => h('option', { value: v, selected: s.ai_model === v }, l)))),
+            field('Capricho nas respostas', h('select', { name: 'ai_effort' },
+              [['low', 'Rápido e econômico (recomendado)'], ['medium', 'Equilibrado'], ['high', 'Mais cuidadoso (mais caro)']]
+                .map(([v, l]) => h('option', { value: v, selected: s.ai_effort === v }, l)))),
+            field('Esperar antes de responder (segundos)', input(s, 'ai_wait_seconds', { type: 'number', min: 0, max: 60 }), 'O cliente costuma mandar várias mensagens seguidas; a IA espera para ler tudo junto.'),
+            field('Formas de pagamento aceitas', input(s, 'payment_methods'))),
+          field('Mensagem ao passar para um humano', h('textarea', { name: 'ai_handoff_message', rows: 2 }, s.ai_handoff_message)),
+          field('Instruções extras para a IA', h('textarea', { name: 'ai_instructions', rows: 5, placeholder: 'Ex.: Aceitamos vale-gás do governo. Domingo abrimos só até 12h. Não entregamos no bairro X. O botijão vazio precisa ser trocado na entrega.' }, s.ai_instructions),
+            'Escreva em linguagem normal o que a IA precisa saber sobre a loja.'),
+        ], testBtn)),
+      h('div', { class: 'card small muted' },
+        h('strong', {}, 'Custos: '), 'a IA é cobrada pela Anthropic conforme o uso. Um atendimento completo costuma custar alguns centavos de real. ',
+        'Os modelos Sonnet e Haiku são mais baratos; o Opus é o mais caprichado. Acompanhe o gasto em console.anthropic.com.'));
+  }
+
+  // ---------- Entrega ----------
+  function entrega(el) {
+    const s = data.settings;
+    const modeSel = h('select', { name: 'delivery_fee_mode', onchange: () => toggle() },
+      [['gratis', 'Entrega grátis sempre'], ['fixa', 'Taxa fixa para todos'], ['por_distancia', 'Por distância (grátis até X km)']]
+        .map(([v, l]) => h('option', { value: v, selected: s.delivery_fee_mode === v }, l)));
+    const fixedBox = h('div', {}, field('Valor da taxa (R$)', input(s, 'delivery_fee_fixed', { type: 'number', step: '0.01', min: 0 })));
+    const coords = s.store_lat != null ? `${s.store_lat}, ${s.store_lng}` : '';
+    const locateBtn = h('button', {
+      class: 'btn sm', type: 'button',
+      onclick: () => attempt(async () => {
+        const p = await api('/api/delivery/locate-store', { method: 'POST' });
+        toast('Loja localizada no mapa!');
+        el.querySelector('[name=store_coords]').value = `${p.lat}, ${p.lng}`;
+      }, locateBtn),
+    }, 'Localizar pelo endereço');
+    const distBox = h('div', {},
+      h('div', { class: 'form-grid' },
+        field('Grátis até (km)', input(s, 'delivery_free_km', { type: 'number', step: '0.1', min: 0 })),
+        field('Taxa acima disso (R$)', input(s, 'delivery_fee_fixed', { type: 'number', step: '0.01', min: 0 })),
+        field('+ por km excedente (R$)', input(s, 'delivery_fee_per_km', { type: 'number', step: '0.01', min: 0 }), 'Deixe 0 para cobrar só a taxa acima.'),
+        field('Não entregar acima de (km)', input(s, 'delivery_max_km', { type: 'number', step: '0.1', min: 0 }), '0 = sem limite.'),
+        field('Endereço da loja', input(s, 'store_address', { placeholder: 'Rua, número, bairro' })),
+        field('Cidade - UF', input(s, 'store_city', { placeholder: 'ex.: Campinas - SP' })),
+        h('div', { class: 'full' }, field('Localização da loja (latitude, longitude)', h('div', { style: { display: 'flex', gap: '8px' } },
+          h('input', { name: 'store_coords', value: coords, placeholder: '-23.5505, -46.6333' }), locateBtn),
+        'No Google Maps, clique com o botão direito em cima da loja e clique nos números para copiar. Ou salve o endereço acima e use "Localizar pelo endereço".'))),
+      h('p', { class: 'small muted', style: { margin: '0 0 12px' } }, 'A distância é calculada pelo caminho de carro (OpenStreetMap). Se o endereço do cliente não for encontrado, a IA pede para ele mandar a localização pelo WhatsApp.'));
+    function toggle() {
+      fixedBox.classList.toggle('hidden', modeSel.value !== 'fixa');
+      distBox.classList.toggle('hidden', modeSel.value !== 'por_distancia');
+      // Os dois blocos têm o campo de taxa; só o visível é enviado.
+      for (const inp of el.querySelectorAll('[name=delivery_fee_fixed]')) inp.disabled = inp.closest('.hidden') !== null;
+    }
+
+    const quoteAddr = h('input', { placeholder: 'Endereço de um cliente, ex.: Rua das Flores, 100, Centro' });
+    const quoteOut = h('div', { class: 'small', style: { marginTop: '8px' } });
+    const quoteBtn = h('button', {
+      class: 'btn',
+      onclick: () => attempt(async () => {
+        const r = await api('/api/delivery/quote', { method: 'POST', body: { address: quoteAddr.value } });
+        mount(quoteOut, !r.ok ? h('span', { style: { color: 'var(--danger)' } }, r.error)
+          : r.outOfRange ? `Fora da área de entrega (${r.distance_km} km)`
+            : `Taxa: R$ ${Number(r.fee).toFixed(2).replace('.', ',')}${r.distance_km != null ? ` · ${r.distance_km} km (${r.distance_method})` : ''} · ${r.rule}`);
+      }, quoteBtn),
+    }, 'Calcular');
+
+    mount(el,
+      h('div', { class: 'card' }, h('h2', {}, 'Taxa de entrega'),
+        settingsForm([
+          field('Como cobrar a entrega', modeSel),
+          fixedBox, distBox,
+          field('Previsão de entrega', input(s, 'delivery_eta'), 'A IA informa isso ao cliente. Ex.: 30 a 60 minutos.'),
+        ])),
+      h('div', { class: 'card' }, h('h2', {}, 'Simular taxa'),
+        h('div', { style: { display: 'flex', gap: '8px' } }, quoteAddr, quoteBtn), quoteOut));
+    toggle();
   }
 
   // ---------- Lembretes ----------

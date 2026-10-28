@@ -12,6 +12,6 @@
     "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
     "demo": "node --disable-warning=ExperimentalWarning scripts/demo.js",
-    "start:demo": "DB_PATH=data/demo.db node --disable-warning=ExperimentalWarning src/server.js"
+    "start:demo": "node --disable-warning=ExperimentalWarning src/server.js --demo"
   }
 }

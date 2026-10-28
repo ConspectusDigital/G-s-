@@ -43,12 +43,18 @@ Seu objetivo é atender bem e fechar a venda: entender o que o cliente precisa, 
 
 Como conversar:
 - Português do Brasil, tom simpático, acolhedor e natural, como um atendente de bairro atencioso. Mensagens curtas, como no WhatsApp. Evite listas e textos longos; no máximo 1 ou 2 emojis por mensagem, quando combinar.
-- Chame o cliente pelo primeiro nome quando souber. Com clientes que já compraram, seja caloroso e use o que você sabe deles (ex.: "Oi, Dona Maria! Vai ser o P13 de sempre, no mesmo endereço?").
+- Chame o cliente pelo primeiro nome quando souber.
 - Pergunte uma coisa de cada vez. Não repita perguntas sobre o que o cliente já respondeu.
 - Para separar ideias em mensagens diferentes, deixe uma linha em branco entre elas (no máximo 3 mensagens por resposta).
 - Se perguntarem se você é um robô ou uma pessoa, diga com naturalidade que é a atendente virtual da loja e que pode chamar alguém da equipe se o cliente preferir.
 
-Cliente novo (sem cadastro confirmado):
+Cliente já cadastrado (o contexto diz "CLIENTE CADASTRADO"):
+- Você já sabe quem é: NUNCA pergunte o nome, nem peça para ele se apresentar. Cumprimente pelo primeiro nome desde a primeira resposta, com carinho de quem conhece o cliente (ex.: "Oi, Maria! Tudo bem? Vai ser o P13 de sempre?").
+- Não peça o endereço de novo. Antes de fechar o pedido, só confirme se a entrega é no endereço do cadastro, citando-o (ex.: "Entrego aí na Rua das Flores, 120, Centro, certo?"). Confirme uma única vez por conversa.
+- Se ele disser que mudou de endereço, pergunte o novo e salve com salvar_dados_cliente. Se for só esta entrega em outro lugar, use endereco_alternativo, sem mudar o cadastro.
+- Se o cadastro não tiver endereço, peça apenas o endereço (nunca o nome).
+
+Cliente novo (o contexto diz "CLIENTE NOVO"):
 - Antes de registrar o pedido, você precisa do nome e do endereço completo: rua, número, bairro e um ponto de referência. O telefone você já tem pela conversa, não pergunte.
 - Assim que tiver os dados, salve com a ferramenta salvar_dados_cliente.
 
@@ -112,8 +118,9 @@ const TOOLS = [
         troco_para: { type: 'number', description: 'Valor da nota para troco, se pagar em dinheiro; 0 se não precisar' },
         endereco_alternativo: { type: 'string', description: 'Endereço de entrega diferente do cadastro; "" para usar o cadastrado' },
         observacoes: { type: 'string', description: 'Observações para o entregador; "" se não houver' },
+        endereco_confirmado: { type: 'boolean', description: 'true se o cliente confirmou nesta conversa o endereço de entrega' },
       },
-      required: ['itens', 'forma_pagamento', 'troco_para', 'endereco_alternativo', 'observacoes'],
+      required: ['itens', 'forma_pagamento', 'troco_para', 'endereco_alternativo', 'observacoes', 'endereco_confirmado'],
       additionalProperties: false,
     },
   },
@@ -164,7 +171,13 @@ function contextNote(ctx, customer, earlierStoreMessages) {
   const confirmed = Boolean(customer.address) || orders.length > 0 || !String(customer.notes).includes(AUTO_NOTE);
   lines.push(`- Telefone do cliente: ${formatPhone(customer.phone)}.`);
   if (confirmed) {
-    lines.push(`- Cliente cadastrado: ${customer.name}. Endereço: ${[customer.address, customer.neighborhood].filter(Boolean).join(', ') || 'não informado'}${customer.reference ? ` (referência: ${customer.reference})` : ''}.${customer.latitude != null ? ' Localização no mapa já registrada.' : ''}`);
+    const addr = [customer.address, customer.neighborhood].filter(Boolean).join(', ');
+    // Cadastro feito só com o telefone: o "nome" é o número.
+    if (/\p{L}/u.test(customer.name)) lines.push(`- CLIENTE CADASTRADO: ${customer.name} (chame de "${customer.name.trim().split(/\s+/)[0]}"; não pergunte o nome).`);
+    else lines.push('- CLIENTE CADASTRADO, mas sem nome no cadastro: pergunte só o nome e salve com salvar_dados_cliente.');
+    lines.push(addr
+      ? `- Endereço do cadastro: ${addr}${customer.reference ? ` (referência: ${customer.reference})` : ''}. Só confirme se a entrega continua sendo nele.${customer.latitude != null ? ' Localização no mapa já registrada.' : ''}`
+      : '- O cadastro não tem endereço: peça apenas o endereço.');
   } else {
     lines.push(`- Cliente NOVO, ainda sem cadastro confirmado. Nome no perfil do WhatsApp: "${customer.name}" (pode não ser o nome real — confirme). Endereço: ${customer.address || 'não informado'}.${customer.latitude != null ? ' Já enviou a localização pelo WhatsApp.' : ''}`);
   }
@@ -239,6 +252,9 @@ async function runTool(ctx, name, input, state) {
     const alt = String(input.endereco_alternativo ?? '').trim();
     if (!customer.address) {
       return { ok: false, error: 'Cadastro incompleto: salve nome e endereço do cliente com salvar_dados_cliente antes de registrar o pedido.' };
+    }
+    if (!input.endereco_confirmado) {
+      return { ok: false, error: `Confirme com o cliente o endereço de entrega antes de registrar: ${alt || [customer.address, customer.neighborhood].filter(Boolean).join(', ')}.` };
     }
     const recent = db.prepare(`SELECT id FROM orders WHERE customer_id = ? AND status = 'novo' AND source = 'whatsapp' AND created_at > ?`)
       .get(customer.id, new Date(Date.now() - 30 * 60000).toISOString());

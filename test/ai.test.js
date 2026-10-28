@@ -58,7 +58,7 @@ test('cliente novo: IA cadastra, calcula a taxa e registra o pedido', async () =
   const script = [
     tool('t1', 'salvar_dados_cliente', { nome: 'Carlos Souza', endereco: 'Rua A, 10', bairro: 'Centro', ponto_referencia: 'perto da padaria' }),
     tool('t2', 'calcular_taxa_entrega', { endereco_alternativo: '' }),
-    tool('t3', 'registrar_pedido', { itens: [{ produto_id: 1, quantidade: 1 }], forma_pagamento: 'dinheiro', troco_para: 150, endereco_alternativo: '', observacoes: '' }),
+    tool('t3', 'registrar_pedido', { itens: [{ produto_id: 1, quantidade: 1 }], forma_pagamento: 'dinheiro', troco_para: 150, endereco_alternativo: '', observacoes: '', endereco_confirmado: true }),
     say('Pedido anotado, Carlos! 🙌\n\nChega aí em 30 a 60 minutos.'),
   ];
   claude.requests.length = 0;
@@ -98,7 +98,7 @@ test('cliente novo: IA cadastra, calcula a taxa e registra o pedido', async () =
 
 test('cliente sem endereço não consegue fechar pedido pela IA', async () => {
   Object.assign(claude, fakeClaude([
-    tool('a1', 'registrar_pedido', { itens: [{ produto_id: 1, quantidade: 1 }], forma_pagamento: 'pix', troco_para: 0, endereco_alternativo: '', observacoes: '' }),
+    tool('a1', 'registrar_pedido', { itens: [{ produto_id: 1, quantidade: 1 }], forma_pagamento: 'pix', troco_para: 0, endereco_alternativo: '', observacoes: '', endereco_confirmado: true }),
     (req) => {
       assert.match(req.messages.at(-1).content[0].content, /Cadastro incompleto/);
       assert.equal(req.messages.at(-1).content[0].is_error, true);
@@ -160,6 +160,33 @@ test('localização enviada pelo WhatsApp fica salva no cliente', async () => {
   const c = app.ctx.db.prepare("SELECT * FROM customers WHERE phone_key = '1100009999'").get();
   assert.equal(c.latitude, -23.55);
   assert.equal(c.location_source, 'whatsapp');
+});
+
+test('cliente já cadastrado: IA recebe o nome e só confirma o endereço', async () => {
+  // Cliente cadastrado pela loja (sem o nono dígito, como às vezes chega no WhatsApp)
+  await call('/api/customers', { method: 'POST', body: { name: 'Maria Aparecida Santos', phone: '(11) 96666-5555', address: 'Rua das Flores, 120', neighborhood: 'Centro' } });
+  Object.assign(claude, fakeClaude([
+    (req) => {
+      const ctxMsg = req.messages.at(-1).content;
+      assert.match(ctxMsg, /CLIENTE CADASTRADO: Maria Aparecida Santos \(chame de "Maria"; não pergunte o nome\)/);
+      assert.match(ctxMsg, /Endereço do cadastro: Rua das Flores, 120, Centro\. Só confirme/);
+      assert.doesNotMatch(ctxMsg, /CLIENTE NOVO/);
+      assert.match(req.system[0].text, /NUNCA pergunte o nome/);
+      // Tentou fechar sem confirmar o endereço
+      return tool('r1', 'registrar_pedido', { itens: [{ produto_id: 1, quantidade: 1 }], forma_pagamento: 'pix', troco_para: 0, endereco_alternativo: '', observacoes: '', endereco_confirmado: false });
+    },
+    (req) => {
+      assert.match(req.messages.at(-1).content[0].content, /Confirme com o cliente o endereço de entrega antes de registrar: Rua das Flores, 120, Centro/);
+      return say('Oi, Maria! Entrego aí na Rua das Flores, 120, Centro, certo?');
+    },
+  ]));
+  app.ctx.aiClient = claude;
+  await call('/api/whatsapp/simulate', { method: 'POST', body: { phone: '551166665555', name: 'Mari', text: 'oi, manda um gás' } });
+  const msgs = await until(() => messagesOf('1166665555').some((m) => m.sender === 'ia') && messagesOf('1166665555'));
+  assert.equal(msgs.at(-1).body, 'Oi, Maria! Entrego aí na Rua das Flores, 120, Centro, certo?');
+  // Não criou cliente duplicado nem pedido sem confirmação
+  assert.equal(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM customers WHERE phone_key = '1166665555'").get().n, 1);
+  assert.equal(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM orders o JOIN customers c ON c.id = o.customer_id WHERE c.phone_key = '1166665555'").get().n, 0);
 });
 
 test('regras da taxa de entrega', () => {
